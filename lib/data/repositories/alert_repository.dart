@@ -1,59 +1,63 @@
 import '../../domain/models/stock_alert.dart';
 
-abstract class AlertRepository{
+abstract class AlertRepository {
   Future<List<StockAlert>> fetchAlerts();
-  Future<void> acknowledgeAlert(String id);
-
+  Future<void> acknowledge(String id);
 }
+
 class InMemoryAlertRepository implements AlertRepository {
   final List<StockAlert> _alerts;
 
   InMemoryAlertRepository({List<StockAlert>? initialAlerts})
-      : _alerts = initialAlerts ?? _defaultDummyAlerts;
+    : _alerts = List<StockAlert>.of(initialAlerts ?? _defaultAlerts);
 
-  static final List<StockAlert> _defaultDummyAlerts = [
+  static const List<StockAlert> _defaultAlerts = [
     StockAlert(
-      id: '1',
-      title: 'نقص حاد في المخزون',
-      message: 'المنتج أوشك على الانتهاء في الفرع الرئيسي',
+      id: 'insulin',
+      medicineNameEn: 'Insulin',
+      medicineNameAr: 'إنسولين',
       severity: Severity.critical,
-      createdAt: DateTime.now().subtract(const Duration(hours: 2)),
-      isAcknowledged: false,
-      sku: 'SKU-1001',
+      daysOfCover: 1.5,
+      branchCode: 'CAI-01',
     ),
     StockAlert(
-      id: '2',
-      title: 'تنبيه انتهاء الصلاحية',
-      message: 'شحنة الحليب تنتهي صلاحيتها خلال أسبوع',
+      id: 'amlodipine',
+      medicineNameEn: 'Amlodipine',
+      medicineNameAr: 'أملوديبين',
       severity: Severity.high,
-      createdAt: DateTime.now().subtract(const Duration(hours: 5)),
-      isAcknowledged: false,
-      sku: 'SKU-1002',
+      daysOfCover: 4,
+      branchCode: 'CAI-01',
     ),
     StockAlert(
-      id: '3',
-      title: 'إعادة الطلب المستحسنة',
-      message: 'الوصول للحد الأدنى من المخزون',
+      id: 'metformin',
+      medicineNameEn: 'Metformin',
+      medicineNameAr: 'ميتفورمين',
       severity: Severity.medium,
-      createdAt: DateTime.now().subtract(const Duration(days: 1)),
-      isAcknowledged: true,
-      sku: 'SKU-1003',
+      daysOfCover: 9,
+      branchCode: 'CAI-01',
+    ),
+    StockAlert(
+      id: 'atorvastatin',
+      medicineNameEn: 'Atorvastatin',
+      medicineNameAr: 'أتورفاستاتين',
+      severity: Severity.low,
+      daysOfCover: 21,
+      branchCode: 'CAI-01',
     ),
   ];
 
   @override
   Future<List<StockAlert>> fetchAlerts() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return List.unmodifiable(_alerts);
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    return List<StockAlert>.unmodifiable(_alerts);
   }
 
   @override
-  Future<void> acknowledgeAlert(String id) async {
-    await Future.delayed(const Duration(milliseconds: 100));
+  Future<void> acknowledge(String id) async {
+    await Future<void>.delayed(const Duration(milliseconds: 100));
     final index = _alerts.indexWhere((alert) => alert.id == id);
     if (index != -1) {
-      _alerts[index] = _alerts[index].copyWith(isAcknowledged: true);
+      _alerts[index] = _alerts[index].copyWith(acknowledged: true);
     }
   }
-
 }

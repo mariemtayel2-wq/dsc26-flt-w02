@@ -27,7 +27,7 @@ class StockAlert {
       severity: _parseSeverity(json['severity']),
       daysOfCover: _parseDaysOfCover(json['daysOfCover']),
       branchCode: _requireString(json, 'branchCode'),
-      acknowledged: _parseAcknowledged(json['acknowledged']),
+      acknowledged: _parseAcknowledged(json),
     );
   }
 
@@ -55,7 +55,6 @@ class StockAlert {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is StockAlert &&
-          other.runtimeType == runtimeType &&
           other.id == id &&
           other.medicineNameEn == medicineNameEn &&
           other.medicineNameAr == medicineNameAr &&
@@ -66,69 +65,49 @@ class StockAlert {
 
   @override
   int get hashCode => Object.hash(
-        id,
-        medicineNameEn,
-        medicineNameAr,
-        severity,
-        daysOfCover,
-        branchCode,
-        acknowledged,
-      );
-
+    id,
+    medicineNameEn,
+    medicineNameAr,
+    severity,
+    daysOfCover,
+    branchCode,
+    acknowledged,
+  );
 }
 
 String _requireString(Map<String, Object?> json, String key) {
   final value = json[key];
-  if (value is! String || value.trim().isEmpty) {
-    throw FormatException(
-      'Field "$key" must be a non-empty string, got: ${value.runtimeType}',
-      value,
-    );
+  if (value is! String || value.isEmpty) {
+    throw FormatException('Field "$key" must be a non-empty string', value);
   }
   return value;
 }
 
 Severity _parseSeverity(Object? value) {
   if (value is! String) {
-    throw FormatException(
-      'Field "severity" must be a string, got: ${value.runtimeType}',
-      value,
-    );
+    throw FormatException('Field "severity" must be a string', value);
   }
-  final normalized = value.trim().toLowerCase();
+  final normalized = value.toLowerCase();
   for (final s in Severity.values) {
     if (s.name == normalized) return s;
   }
-  throw FormatException(
-    'Field "severity" must be one of '
-    '${Severity.values.map((s) => s.name).join(', ')}, got: "$value"',
-    value,
-  );
+  throw FormatException('Field "severity" has an unknown value', value);
 }
 
 double _parseDaysOfCover(Object? value) {
   if (value is! num) {
-    throw FormatException(
-      'Field "daysOfCover" must be a number, got: ${value.runtimeType}',
-      value,
-    );
+    throw FormatException('Field "daysOfCover" must be a number', value);
   }
   final d = value.toDouble();
-
   if (!d.isFinite || d < 0) {
-    throw FormatException(
-      'Field "daysOfCover" must be a finite number >= 0, got: $value',
-      value,
-    );
+    throw FormatException('Field "daysOfCover" must be >= 0', value);
   }
   return d;
 }
 
-bool _parseAcknowledged(Object? value) {
-  if (value == null) return false; 
+bool _parseAcknowledged(Map<String, Object?> json) {
+  if (!json.containsKey('acknowledged')) return false;
+  final value = json['acknowledged'];
   if (value is bool) return value;
-  throw FormatException(
-    'Field "acknowledged" must be a bool, got: ${value.runtimeType}',
-    value,
-  );
+  throw FormatException('Field "acknowledged" must be a bool', value);
 }

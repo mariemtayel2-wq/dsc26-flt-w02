@@ -1,206 +1,114 @@
 import 'package:flutter/foundation.dart';
+
 import '../../../data/repositories/alert_repository.dart';
 import '../../../domain/models/stock_alert.dart';
 
-class _SearchEntry {
-  final String title;
-  final String message;
-  final String sku;
-  const _SearchEntry(this.title, this.message, this.sku);
-}
-
 class AlertsViewModel extends ChangeNotifier {
+  AlertsViewModel({required AlertRepository repository})
+    : _repository = repository;
+
   final AlertRepository _repository;
 
-  AlertsViewModel({required AlertRepository repository})
-      : _repository = repository;
-
-  bool _isLoading = false;
-  bool get isLoading => _isLoading;
-
-  String? _error;
-  String? get error => _error;
-
-  List<StockAlert> _allAlerts = [];
-  final Map<String, _SearchEntry> _searchIndex = {};
-
+  List<StockAlert> _alerts = const [];
   final Set<Severity> _activeFilters = {};
-  Set<Severity> get activeFilters => Set.unmodifiable(_activeFilters);
-  bool get hasActiveFilters => _activeFilters.isNotEmpty;
+  String _normalizedQuery = '';
+  bool _loading = false;
+  bool _disposed = false;
 
-  String _searchQuery = '';
-  String get searchQuery => _searchQuery;
+  bool get loading => _loading;
 
-  final Set<String> _acknowledgingIds = {};
-  bool isAcknowledging(String id) => _acknowledgingIds.contains(id);
+  Set<Severity> get activeFilters => Set<Severity>.unmodifiable(_activeFilters);
 
-  List<StockAlert> _visibleAlerts = const [];
-  List<StockAlert> get visibleAlerts => _visibleAlerts;
+  List<StockAlert> get visibleAlerts {
+    final result = _alerts.where(_isVisible).toList()..sort(_compare);
+    return List<StockAlert>.unmodifiable(result);
+  }
 
-  bool get isEmpty => _visibleAlerts.isEmpty;
-
-  int get unacknowledgedCriticalCount => _allAlerts
-      .where((a) => a.severity == Severity.critical && !a.isAcknowledged)
+  int get unacknowledgedCriticalCount => _alerts
+      .where((a) => a.severity == Severity.critical && !a.acknowledged)
       .length;
 
-  bool _disposed = false;
+  Future<void> load() async {
+    _loading = true;
+    _safeNotify();
+    try {
+      final fetched = await _repository.fetchAlerts();
+      _alerts = List<StockAlert>.of(fetched);
+    } catch (_) {
+      _alerts = const [];
+    } finally {
+      _loading = false;
+      _safeNotify();
+    }
+  }
+
+  void toggleFilter(Severity s) {
+    if (!_activeFilters.remove(s)) {
+      _activeFilters.add(s);
+    }
+    _safeNotify();
+  }
+
+  void setQuery(String q) {
+    final normalized = _normalize(q);
+    if (normalized == _normalizedQuery) return;
+    _normalizedQuery = normalized;
+    _safeNotify();
+  }
+
+  Future<void> acknowledge(String id) async {
+    if (!_alerts.any((a) => a.id == id)) return;
+    await _repository.acknowledge(id);
+    final index = _alerts.indexWhere((a) => a.id == id);
+    if (index == -1) return;
+    final updated = List<StockAlert>.of(_alerts);
+    updated[index] = updated[index].copyWith(acknowledged: true);
+    _alerts = updated;
+    _safeNotify();
+  }
+
+  bool _isVisible(StockAlert alert) {
+    if (_activeFilters.isNotEmpty && !_activeFilters.contains(alert.severity)) {
+      return false;
+    }
+    if (_normalizedQuery.isEmpty) return true;
+    return _normalize(alert.medicineNameEn).contains(_normalizedQuery) ||
+        _normalize(alert.medicineNameAr).contains(_normalizedQuery);
+  }
+
+  int _compare(StockAlert a, StockAlert b) {
+    if (a.acknowledged != b.acknowledged) {
+      return a.acknowledged ? 1 : -1;
+    }
+    final bySeverity = a.severity.index.compareTo(b.severity.index);
+    if (bySeverity != 0) return bySeverity;
+    final byCover = a.daysOfCover.compareTo(b.daysOfCover);
+    if (byCover != 0) return byCover;
+    return a.medicineNameEn.toLowerCase().compareTo(
+      b.medicineNameEn.toLowerCase(),
+    );
+  }
+
+  static final RegExp _marks = RegExp('[ً-ْـ]');
+  static final RegExp _alef = RegExp('[أإآ]');
+
+  static String _normalize(String text) {
+    return text
+        .trim()
+        .toLowerCase()
+        .replaceAll(_marks, '')
+        .replaceAll(_alef, 'ا')
+        .replaceAll('ة', 'ه')
+        .replaceAll('ى', 'ي');
+  }
+
+  void _safeNotify() {
+    if (!_disposed) notifyListeners();
+  }
 
   @override
   void dispose() {
     _disposed = true;
     super.dispose();
-  }
-
-  void _notify() {
-    if (!_disposed) notifyListeners();
-  }
-  Future<void> load() async {
-    _isLoading = true;
-    _error = null;
-    _notify();
-
-    try {
-      final fetched = await _repository.fetchAlerts();
-      _allAlerts = List<StockAlert>.of(fetched);
-      _rebuildSearchIndex();
-      _recompute();
-    } catch (e) {
-      _error = e.toString();
-    } finally {
-      _isLoading = false;
-      _notify();
-    }
-  }
-
-  void toggleFilter(Severity severity) {
-    if (!_activeFilters.remove(severity)) {
-      _activeFilters.add(severity);
-    }
-    _recompute();
-    _notify();
-  }
-
-  void clearFilters() {
-    if (_activeFilters.isEmpty) return;
-    _activeFilters.clear();
-    _recompute();
-    _notify();
-  }
-
-  void setQuery(String query) {
-    if (query == _searchQuery) return;
-    _searchQuery = query;
-    _recompute();
-    _notify();
-  }
-
-  Future<void> acknowledge(String id) async {
-    if (_acknowledgingIds.contains(id)) return;
-
-    final index = _allAlerts.indexWhere((a) => a.id == id);
-    if (index == -1 || _allAlerts[index].isAcknowledged) return;
-
-    _acknowledgingIds.add(id);
-    _error = null;
-    _notify();
-
-    try {
-      await _repository.acknowledgeAlert(id);
-
-      final current = _allAlerts.indexWhere((a) => a.id == id);
-      if (current != -1) {
-        _allAlerts[current] = _allAlerts[current].copyWith(isAcknowledged: true);
-      }
-      _recompute();
-    } catch (e) {
-      _error = e.toString();
-    } finally {
-      _acknowledgingIds.remove(id);
-      _notify();
-    }
-  }
-
-  static const Map<Severity, int> _severityRank = {
-    Severity.critical: 0,
-    Severity.high: 1,
-    Severity.medium: 2,
-    Severity.low: 3,
-  };
-
-  static int _rank(Severity s) => _severityRank[s] ?? 99;
-
-  void _rebuildSearchIndex() {
-    _searchIndex
-      ..clear()
-      ..addEntries(_allAlerts.map((a) => MapEntry(
-            a.id,
-            _SearchEntry(
-              _normalizeArabic(a.title),
-              _normalizeArabic(a.message),
-              a.sku != null ? _normalizeArabic(a.sku!) : '',
-            ),
-          )));
-  }
-
-  void _recompute() {
-    final query = _normalizeArabic(_searchQuery.trim());
-
-    final list = _allAlerts.where((alert) {
-      if (_activeFilters.isNotEmpty && !_activeFilters.contains(alert.severity)) {
-        return false;
-      }
-
-      if (query.isNotEmpty) {
-        final entry = _searchIndex[alert.id];
-        if (entry == null) return false;
-        final matches = entry.title.contains(query) ||
-            entry.message.contains(query) ||
-            entry.sku.contains(query);
-        if (!matches) return false;
-      }
-
-      return true;
-    }).toList();
-
-    list.sort((a, b) {
-      if (a.isAcknowledged != b.isAcknowledged) {
-        return a.isAcknowledged ? 1 : -1;
-      }
-
-      final rankComparison = _rank(a.severity).compareTo(_rank(b.severity));
-      if (rankComparison != 0) return rankComparison;
-
-      final dateComparison = b.createdAt.compareTo(a.createdAt);
-      if (dateComparison != 0) return dateComparison;
-
-      return a.id.compareTo(b.id);
-    });
-
-    _visibleAlerts = List.unmodifiable(list);
-  }
-
-  static final RegExp _diacritics = RegExp(r'[\u064B-\u065F\u0670]'); 
-  static final RegExp _tatweel = RegExp(r'\u0640'); 
-  static final RegExp _alef = RegExp(r'[أإآٱ]');
-
-  static const Map<String, String> _digits = {
-    '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
-    '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
-    '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
-    '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
-  };
-
-  static String _normalizeArabic(String text) {
-    var result = text.toLowerCase();
-    result = result.replaceAll(_diacritics, ''); 
-    result = result.replaceAll(_tatweel, ''); 
-    result = result.replaceAll(_alef, 'ا'); 
-    result = result.replaceAll('ى', 'ي'); 
-    result = result.replaceAll('ة', 'ه'); 
-    result = result.replaceAll('ؤ', 'و').replaceAll('ئ', 'ي'); 
-    if (_digits.keys.any(result.contains)) {
-      result = result.split('').map((c) => _digits[c] ?? c).join();
-    }
-    return result;
   }
 }
